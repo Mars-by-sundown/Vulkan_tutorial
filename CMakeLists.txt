@@ -11,6 +11,8 @@ FetchContent_Declare(
     GIT_TAG 3.4
 )
 
+find_package(slang CONFIG HINTS "$ENV{VULKAN_SDK}/lib/cmake")
+
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -23,6 +25,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+FetchContent_Declare(
+    tinyobjloader
+    GIT_REPOSITORY https://github.com/tinyobjloader/tinyobjloader.git
+    GIT_TAG        v2.0.0rc13
+)
+FetchContent_MakeAvailable(tinyobjloader)
+
 find_package(Vulkan REQUIRED)
 
 add_executable(VulkanApp src/main.cpp)
@@ -31,5 +40,6 @@ target_include_directories(VulkanApp PRIVATE ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(VulkanApp PRIVATE 
     Vulkan::Vulkan
     glfw
-    glm::glm)
+    glm::glm
+    tinyobjloader)
 
