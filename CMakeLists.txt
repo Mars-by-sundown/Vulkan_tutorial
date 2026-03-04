@@ -3,6 +3,7 @@ project(Vulkan_tutorial)
 
 set(CMAKE_CXX_STANDARD 20)
 
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -35,8 +36,14 @@ FetchContent_MakeAvailable(tinyobjloader)
 find_package(Vulkan REQUIRED)
 
 add_executable(VulkanApp src/main.cpp)
-target_compile_definitions(VulkanApp PRIVATE VULKAN_HPP_NO_CONSTRUCTORS)
+
+target_compile_definitions(VulkanApp PRIVATE
+    VULKAN_HPP_NO_CONSTRUCTORS
+)
+
+
 target_include_directories(VulkanApp PRIVATE ${Vulkan_INCLUDE_DIRS})
+
 target_link_libraries(VulkanApp PRIVATE 
     Vulkan::Vulkan
     glfw
