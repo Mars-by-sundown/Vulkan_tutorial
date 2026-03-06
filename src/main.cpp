@@ -56,6 +56,7 @@ private:
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
     }
 
     void setupDebugMessenger()
@@ -423,6 +424,40 @@ private:
             std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
             std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
         };
+    }
+
+    //##################################
+    // IMAGE VIEWS
+    //##################################  
+
+    void createImageViews(){
+        assert(swapChainImageViews.empty());
+
+        vk::ImageViewCreateInfo imageViewCreateInfo{
+            .viewType         = vk::ImageViewType::e2D,
+            .format           = swapChainSurfaceFormat.format,
+            //allows swizzling of color channels, for example to make a monochrome image
+            .components = {
+                vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity
+            },
+            //describes the images purpose and which part of the image to access
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .levelCount = 1,
+                .layerCount = 1
+            }
+        };
+
+        //create a view into the image for each image
+        for (auto &image : swapChainImages)
+        {
+            imageViewCreateInfo.image = image;
+            swapChainImageViews.emplace_back( device, imageViewCreateInfo );
+        }
+
     }
 
     private:
