@@ -10,6 +10,9 @@ import vulkan_hpp;
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
+#include <cstdint> // Necessary for uint32_t
+#include <limits> // Necessary for std::numeric_limits
+#include <algorithm> // Necessary for std::clamp
 
 
 constexpr uint32_t WIDTH = 800;
@@ -52,6 +55,7 @@ private:
         createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+        createSwapChain();
     }
 
     void setupDebugMessenger()
@@ -240,16 +244,21 @@ private:
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 
         // get the first index into queueFamilyProperties which supports graphics
-        auto graphicsQueueFamilyProperty = std::ranges::find_if( queueFamilyProperties, []( auto const & qfp )
-                        { return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0); } );
+        auto graphicsQueueFamilyProperty = std::ranges::find_if( 
+            queueFamilyProperties, 
+            []( auto const & qfp )
+                { return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
+                } 
+            );
 
         auto graphicsIndex = static_cast<uint32_t>( std::distance( queueFamilyProperties.begin(), graphicsQueueFamilyProperty ) );
 
         // determine a queueFamilyIndex that supports present
         // first check if the graphicsIndex is good enough
         auto presentIndex = physicalDevice.getSurfaceSupportKHR( graphicsIndex, *surface )
-                                        ? graphicsIndex
-                                        : static_cast<uint32_t>( queueFamilyProperties.size() );
+            ? graphicsIndex
+            : static_cast<uint32_t>( queueFamilyProperties.size() );
+        //TODO fix presentIndex to simplify and shorten logic
         if ( presentIndex == queueFamilyProperties.size() )
         {
             // the graphicsIndex doesn't support present -> look for another family index that supports both
@@ -283,37 +292,149 @@ private:
             throw std::runtime_error( "Could not find a queue for graphics or present -> terminating" );
         }
 
+        auto surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR( surface );
+        std::vector<vk::SurfaceFormatKHR> availableFormats = physicalDevice.getSurfaceFormatsKHR( surface );
+        std::vector<vk::PresentModeKHR> availablePresentModes = physicalDevice.getSurfacePresentModesKHR( surface );
+
+
         // query for Vulkan 1.3 features
         auto features = physicalDevice.getFeatures2();
-        vk::PhysicalDeviceVulkan13Features vulkan13Features;
-        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures;
-        vulkan13Features.dynamicRendering = vk::True;
-        extendedDynamicStateFeatures.extendedDynamicState = vk::True;
-        vulkan13Features.pNext = &extendedDynamicStateFeatures;
+        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures{
+            .extendedDynamicState = vk::True
+        };
+        vk::PhysicalDeviceVulkan13Features vulkan13Features{
+            .pNext = &extendedDynamicStateFeatures,
+            .dynamicRendering = vk::True
+        };
         features.pNext = &vulkan13Features;
+
         // create a Device
-        float                     queuePriority = 0.5f;
-        vk::DeviceQueueCreateInfo deviceQueueCreateInfo { .queueFamilyIndex = graphicsIndex, .queueCount = 1, .pQueuePriorities = &queuePriority };
-        vk::DeviceCreateInfo      deviceCreateInfo{ .pNext =  &features, .queueCreateInfoCount = 1, .pQueueCreateInfos = &deviceQueueCreateInfo };
-        deviceCreateInfo.enabledExtensionCount = deviceExtensions.size();
-        deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+        float queuePriority = 0.5f;
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo {
+            .queueFamilyIndex = graphicsIndex,
+            .queueCount = 1,
+            .pQueuePriorities = &queuePriority
+        };
+        vk::DeviceCreateInfo deviceCreateInfo{
+            .pNext =  &features,
+            .queueCreateInfoCount = 1,
+            .pQueueCreateInfos = &deviceQueueCreateInfo,
+            .enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
+            .ppEnabledExtensionNames = deviceExtensions.data()
+        };
+
+
 
         device = vk::raii::Device( physicalDevice, deviceCreateInfo );
+
+        //create the Queues
         graphicsQueue = vk::raii::Queue( device, graphicsIndex, 0 );
         presentQueue = vk::raii::Queue( device, presentIndex, 0 );
     }
 
+    //##################################
+    // SWAP CHAIN
+    //##################################  
+    
+    void createSwapChain(){
+        auto surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR( *surface );
+        swapChainSurfaceFormat = chooseSwapSurfaceFormat(physicalDevice.getSurfaceFormatsKHR( *surface ));
+        swapChainExtent = chooseSwapExtent(surfaceCapabilities);
+        //min number of images required to function
+        auto minImageCount = std::max( 3u, surfaceCapabilities.minImageCount + 1 );
+        //0 indicates there is no maximum image limit
+        minImageCount = ( surfaceCapabilities.maxImageCount > 0 && minImageCount > surfaceCapabilities.maxImageCount ) ? surfaceCapabilities.maxImageCount : minImageCount;
 
-private:
+        vk::SwapchainCreateInfoKHR swapChainCreateInfo{
+            .flags = vk::SwapchainCreateFlagsKHR(),
+            .surface = *surface,
+            .minImageCount = minImageCount,
+            .imageFormat = swapChainSurfaceFormat.format,
+            .imageColorSpace = swapChainSurfaceFormat.colorSpace,
+            .imageExtent = swapChainExtent,
+            .imageArrayLayers =1,
+            .imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
+            //best performance, one queue may own the image at a time (exclusive), can also be eConcurrent, if concurrent index cnt = 2+ and we must pass the queue families
+            .imageSharingMode = vk::SharingMode::eExclusive,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
+            //allows transforms to be applied in the swap chain such as rotate by 90 degrees
+            //  supported transforms in capabilites
+            .preTransform = surfaceCapabilities.currentTransform,
+            //specifies the alpha channel, usually can just ignore
+            .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
+            .presentMode = chooseSwapPresentMode(physicalDevice.getSurfacePresentModesKHR( *surface )),
+            .clipped = true,
+            //used when old swap chain becomes invalid, we need a reference to the old one when we recreate the swapchain
+            .oldSwapchain = nullptr
+        };
+
+        //create the swapchain
+        swapChain = vk::raii::SwapchainKHR(device,swapChainCreateInfo);
+        swapChainImages = swapChain.getImages();
+    }
+
+    //FORMAT/COLORSPACE
+    //OPT_TODO : Can add ranking logic to select different format/colorSpaces
+    vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& availableFormats) {
+        for (const auto& availableFormat : availableFormats) {
+            if (availableFormat.format == vk::Format::eB8G8R8A8Srgb && availableFormat.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+                //essentially the standard color space for images according to docs.vulkan.org, SRGB format provides more accurate perceived colors
+                return availableFormat;
+            }
+        }
+        return availableFormats[0];
+    }
+
+    //PRESENTATION MODE
+    //OPT_TODO: Can add ranking logic to find the best for requirements
+    /*
+    -VK_PRESENT_MODE_IMMEDIATE_KHR: Images submitted by your application are transferred to the screen right away, which may result in tearing.
+
+    -VK_PRESENT_MODE_FIFO_KHR(guaranteed to be available): The swap chain is a queue where the display takes an image from the front of the queue when the display is refreshed, and the program inserts rendered images at the back of the queue.
+        If the queue is full, then the program has to wait. This is most similar to vertical sync as found in modern games. The moment that the display is refreshed is known as "vertical blank".
+
+    -VK_PRESENT_MODE_FIFO_RELAXED_KHR: This mode only differs from the previous one if the application is late and the queue was empty at the last vertical blank. 
+        Instead of waiting for the next vertical blank, the image is transferred right away when it finally arrives. This may result in visible tearing.
+
+    -VK_PRESENT_MODE_MAILBOX_KHR: This is another variation of the second mode. Instead of blocking the application when the queue is full, the images that are already queued are simply replaced with the newer ones. 
+        This mode can be used to render frames as fast as possible while still avoiding tearing, resulting in fewer latency issues than standard vertical sync. 
+        This is commonly known as "triple buffering," although the existence of three buffers alone does not necessarily mean that the framerate is unlocked.
+    */
+    vk::PresentModeKHR chooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes) {
+        for (const auto& availablePresentMode : availablePresentModes) {
+            if (availablePresentMode == vk::PresentModeKHR::eMailbox) {
+                return availablePresentMode;
+            }
+        }
+        return vk::PresentModeKHR::eFifo;
+    }
+
+    //SWAP EXTENT
+    vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities) {
+        //if width and height are set to max of uint32_t, we will pick the resolution that best matches the window within the
+        if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+            return capabilities.currentExtent;
+        }
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+
+        return {
+            std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+            std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
+        };
+    }
+
+    private:
     //WINDOW - GLFW3
-    GLFWwindow* window;
-
-    //WINDOW - VULKAN
-    vk::raii::SurfaceKHR surface = nullptr;
+    GLFWwindow* window = nullptr;
 
     // INSTANCE/CONTEXT/LAYERS
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
+
+    //WINDOW - VULKAN
+    vk::raii::SurfaceKHR surface = nullptr;
 
     // DEVICE
     std::vector<const char*> deviceExtensions = {
@@ -326,6 +447,13 @@ private:
     //QUEUES
     vk::raii::Queue graphicsQueue = nullptr;
     vk::raii::Queue presentQueue = nullptr;
+
+    //SWAP CHAIN
+    vk::raii::SwapchainKHR swapChain = nullptr;
+    std::vector<vk::Image> swapChainImages;
+    vk::SurfaceFormatKHR swapChainSurfaceFormat;
+	vk::Extent2D swapChainExtent;
+	std::vector<vk::raii::ImageView> swapChainImageViews;
 
     //  DEBUG
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
