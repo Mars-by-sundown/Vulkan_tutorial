@@ -1,7 +1,9 @@
 build/
+compiledShaders/
 .cache/
 .vscode/
 *.exe
 *.pdb
 *.lib
 *.obj
+*.bat

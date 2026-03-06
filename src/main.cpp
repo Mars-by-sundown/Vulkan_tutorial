@@ -14,6 +14,8 @@ import vulkan_hpp;
 #include <limits> // Necessary for std::numeric_limits
 #include <algorithm> // Necessary for std::clamp
 
+#include <fstream> //for loading shaders and files
+
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -49,6 +51,22 @@ private:
         return vk::False;
     }
 
+    static std::vector<char> readFile(const std::string& filename) {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+        if (!file.is_open()) {
+            throw std::runtime_error("failed to open file!");
+        }
+        //start at end of file so we can use the index to determine the size our buffer needs to be
+        std::vector<char> buffer(file.tellg());
+
+        file.seekg(0, std::ios::beg);
+        file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        file.close();
+
+        return buffer;
+    }   
+
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
@@ -57,6 +75,7 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createGraphicsPipeline();
     }
 
     void setupDebugMessenger()
@@ -458,6 +477,44 @@ private:
             swapChainImageViews.emplace_back( device, imageViewCreateInfo );
         }
 
+    }
+
+    //##################################
+    // GRAPHICS PIPELINE
+    //##################################  
+
+    //TODO: direct filepath to a config or setup file variable
+    void createGraphicsPipeline() {
+        //shader bytecode is linked to GPU after pipeline creation so the module can then be immediately destroyed
+        vk::raii::ShaderModule shaderModule = createShaderModule(readFile("compiledShaders/slang.spv"));
+
+        //pSpecializationInfo allows you to declare constants for the shader code, this allows for further optimization
+        vk::PipelineShaderStageCreateInfo vertShaderStageInfo{ 
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = shaderModule,
+            .pName = "vertMain",
+            .pSpecializationInfo = nullptr
+        };
+
+        vk::PipelineShaderStageCreateInfo fragShaderStageInfo{ 
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = shaderModule,
+            .pName = "fragMain",
+            .pSpecializationInfo = nullptr
+        };
+
+        vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+    }
+
+    //wrapper for the shader bytecode
+    [[nodiscard]] vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const {
+            vk::ShaderModuleCreateInfo createInfo{
+                .codeSize = code.size() * sizeof(char),
+                .pCode = reinterpret_cast<const uint32_t*>(code.data())
+            };
+            vk::raii::ShaderModule shaderModule{ device, createInfo };
+            return shaderModule;
     }
 
     private:
