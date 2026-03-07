@@ -588,6 +588,34 @@ private:
 
         pipelineLayout = vk::raii::PipelineLayout( device, pipelineLayoutInfo );
 
+        //dynamic rendering
+        vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo{
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = &swapChainSurfaceFormat.format
+        };
+
+        vk::GraphicsPipelineCreateInfo pipelineInfo{
+            .pNext = &pipelineRenderingCreateInfo,
+            .stageCount = 2,
+            .pStages = shaderStages,
+            .pVertexInputState = &vertexInputInfo,
+            .pInputAssemblyState = &inputAssembly,
+            .pViewportState = &viewportState,
+            .pRasterizationState = &rasterizer,
+            .pMultisampleState = &multisampling,
+            .pColorBlendState = &colorBlending,
+            .pDynamicState = &dynamicState,
+            .layout = pipelineLayout,
+            //because we are using dynamic rendering
+            .renderPass = nullptr,
+            //
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1
+        };
+
+        graphicsPipeline = vk::raii::Pipeline(device, nullptr, pipelineInfo);
+
+
     }
 
     //wrapper for the shader bytecode
@@ -634,6 +662,7 @@ private:
 
     //PIPELINE
     vk::raii::PipelineLayout pipelineLayout = nullptr;
+    vk::raii::Pipeline graphicsPipeline = nullptr;
 
     //  DEBUG
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
