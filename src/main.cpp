@@ -486,7 +486,7 @@ private:
     //TODO: direct filepath to a config or setup file variable
     void createGraphicsPipeline() {
         //shader bytecode is linked to GPU after pipeline creation so the module can then be immediately destroyed
-        vk::raii::ShaderModule shaderModule = createShaderModule(readFile("compiledShaders/slang.spv"));
+        vk::raii::ShaderModule shaderModule = createShaderModule(readFile("../compiledShaders/slang.spv"));
 
         //pSpecializationInfo allows you to declare constants for the shader code, this allows for further optimization
         vk::PipelineShaderStageCreateInfo vertShaderStageInfo{ 
@@ -505,6 +505,89 @@ private:
 
         vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
+        //triangle is hardcoded into shader so not needed
+        vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{ 
+            .topology = vk::PrimitiveTopology::eTriangleList
+        };
+
+        //viewport basically describes the region of the framebuffer that the output will be rendered to
+        vk::Viewport{
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<float>(swapChainExtent.width),
+            .height = static_cast<float>(swapChainExtent.height),
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
+
+        //fixed functions
+        std::vector dynamicStates = {
+            vk::DynamicState::eViewport,
+            vk::DynamicState::eScissor
+        };
+
+        vk::PipelineDynamicStateCreateInfo dynamicState{
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()
+        };
+
+        vk::PipelineViewportStateCreateInfo viewportState{
+            .viewportCount = 1,
+            .scissorCount = 1 
+        };
+
+
+        vk::PipelineRasterizationStateCreateInfo rasterizer{ 
+            .depthClampEnable = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode = vk::PolygonMode::eFill,
+            .cullMode = vk::CullModeFlagBits::eBack,
+            .frontFace = vk::FrontFace::eClockwise,
+            .depthBiasEnable = vk::False,
+            .depthBiasSlopeFactor = 1.0f,
+            .lineWidth = 1.0f
+        };
+
+        vk::PipelineMultisampleStateCreateInfo multisampling{
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False
+        };
+
+        //configuration per attached framebuffer
+        //handles color blending
+        vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+            .blendEnable    = vk::False,
+            .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+            .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+            .colorBlendOp = vk::BlendOp::eAdd,
+            .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+            .dstAlphaBlendFactor = vk::BlendFactor::eZero,
+            .alphaBlendOp = vk::BlendOp::eAdd,
+            //if global state is logicOp bitwise
+            .colorWriteMask = 
+                vk::ColorComponentFlagBits::eR | 
+                vk::ColorComponentFlagBits::eG | 
+                vk::ColorComponentFlagBits::eB | 
+                vk::ColorComponentFlagBits::eA
+        };
+
+        //GLOBAL color blending constants
+        vk::PipelineColorBlendStateCreateInfo colorBlending{
+            .logicOpEnable = vk::False,
+            .logicOp =  vk::LogicOp::eCopy,
+            .attachmentCount = 1,
+            .pAttachments =  &colorBlendAttachment
+        };
+
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+            .setLayoutCount = 0,
+            .pushConstantRangeCount = 0
+        };
+
+        pipelineLayout = vk::raii::PipelineLayout( device, pipelineLayoutInfo );
+
     }
 
     //wrapper for the shader bytecode
@@ -517,7 +600,9 @@ private:
             return shaderModule;
     }
 
-    private:
+
+
+private:
     //WINDOW - GLFW3
     GLFWwindow* window = nullptr;
 
@@ -546,6 +631,9 @@ private:
     vk::SurfaceFormatKHR swapChainSurfaceFormat;
 	vk::Extent2D swapChainExtent;
 	std::vector<vk::raii::ImageView> swapChainImageViews;
+
+    //PIPELINE
+    vk::raii::PipelineLayout pipelineLayout = nullptr;
 
     //  DEBUG
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
